@@ -1,0 +1,2 @@
+"""Frame Extractor application package."""
+
