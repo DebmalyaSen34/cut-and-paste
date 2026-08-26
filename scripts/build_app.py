@@ -16,6 +16,13 @@ BIN_DIR = ROOT_DIR / "bin"
 DIST_DIR = ROOT_DIR / "dist"
 
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+
 def main() -> int:
     print("==================================================")
     print("  Media Studio Standalone Packaging Builder")
@@ -31,7 +38,7 @@ def main() -> int:
         from download_ffmpeg import download_and_extract
         download_and_extract()
     else:
-        print(f"\n[✓] Found bundled FFmpeg binaries in {BIN_DIR}")
+        print(f"\n[OK] Found bundled FFmpeg binaries in {BIN_DIR}")
 
     # Step 2: Run PyInstaller
     print("\n[*] Building standalone application with PyInstaller...")
@@ -52,7 +59,7 @@ def main() -> int:
         if app_path.exists():
             zip_out = DIST_DIR / "MediaStudio-macOS"
             shutil.make_archive(str(zip_out), "zip", root_dir=str(DIST_DIR), base_dir="MediaStudio.app")
-            print(f"\n[🎉] SUCCESS! macOS standalone app created:")
+            print(f"\n[SUCCESS] macOS standalone app created:")
             print(f"     -> {DIST_DIR / 'MediaStudio.app'}")
             print(f"     -> {DIST_DIR / 'MediaStudio-macOS.zip'}")
     elif sys.platform == "win32":
@@ -60,11 +67,11 @@ def main() -> int:
         if exe_path.exists():
             zip_out = DIST_DIR / "MediaStudio-Windows"
             shutil.make_archive(str(zip_out), "zip", root_dir=str(DIST_DIR), base_dir="MediaStudio.exe")
-            print(f"\n[🎉] SUCCESS! Windows standalone executable created:")
+            print(f"\n[SUCCESS] Windows standalone executable created:")
             print(f"     -> {DIST_DIR / 'MediaStudio.exe'}")
             print(f"     -> {DIST_DIR / 'MediaStudio-Windows.zip'}")
     else:
-        print(f"\n[🎉] SUCCESS! Build output located in {DIST_DIR}")
+        print(f"\n[SUCCESS] Build output located in {DIST_DIR}")
 
     return 0
 

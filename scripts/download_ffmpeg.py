@@ -19,6 +19,12 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 BIN_DIR = ROOT_DIR / "bin"
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 
 def get_download_url() -> str:
     system = sys.platform
@@ -82,7 +88,7 @@ def download_and_extract() -> None:
                             _set_executable(out_path)
                             found.add(basename)
 
-    print(f"[✓] Extracted: {', '.join(found)} into {BIN_DIR}")
+    print(f"[OK] Extracted: {', '.join(found)} into {BIN_DIR}")
 
 
 def _set_executable(path: Path) -> None:
