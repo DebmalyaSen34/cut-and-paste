@@ -1,68 +1,168 @@
-name: Build Standalone Releases
+name: Cross Platform Standalone Build
 
 on:
+  pull_request:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.platform }}
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - os: macos-latest
-            artifact_name: MediaStudio-macOS
-            asset_path: dist/MediaStudio-macOS.zip
-          - os: windows-latest
-            artifact_name: MediaStudio-Windows
-            asset_path: dist/MediaStudio-Windows.zip
-
-    runs-on: ${{ matrix.os }}
+          - name: macos-arm64
+            platform: [self-hosted, macOS, ARM64]
+            asset_name: MediaStudio-macOS-arm64.zip
+          - name: windows-x64
+            platform: windows-latest
+            asset_name: MediaStudio-Windows-x64.zip
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
+      - name: Setup Python on Windows
+        if: runner.os == 'Windows'
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
-      - name: Install Dependencies
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Resolve Python Path
+        shell: bash
         run: |
-          python -m pip install --upgrade pip
-          pip install .
-          pip install pyinstaller>=6.5
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            python_bin="${pythonLocation}/python.exe"
+          else
+            python_bin="$(command -v python3)"
+          fi
+          echo "PYTHON_BIN=$python_bin" >> "$GITHUB_ENV"
+          "$python_bin" --version
 
-      - name: Download Static FFmpeg Binaries
+      - name: Create virtual environment
+        shell: bash
         run: |
-          python scripts/download_ffmpeg.py
+          uv venv --python "$PYTHON_BIN" .venv-ci
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            venv_python="$PWD/.venv-ci/Scripts/python.exe"
+          else
+            venv_python="$PWD/.venv-ci/bin/python"
+          fi
+          echo "VENV_PYTHON=$venv_python" >> "$GITHUB_ENV"
+          "$venv_python" --version
 
-      - name: Build Standalone Executable
+      - name: Install dependencies
+        shell: bash
         run: |
-          python scripts/build_app.py
+          uv pip install --python "$VENV_PYTHON" . "pyinstaller>=6.5" "pytest>=8.0"
 
-      - name: Upload Build Artifact
+      - name: Download verified FFmpeg for Windows bundle
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p bin
+          ffmpeg_url="https://github.com/GyanD/codexffmpeg/releases/download/7.1.1/ffmpeg-7.1.1-essentials_build.zip"
+          ffmpeg_sha256="04861d3339c5ebe38b56c19a15cf2c0cc97f5de4fa8910e4d47e5e6404e4a2d4"
+          ffmpeg_zip="$RUNNER_TEMP/ffmpeg-essentials.zip"
+          ffmpeg_extract_dir="$RUNNER_TEMP/ffmpeg-essentials"
+
+          curl -L --fail --retry 3 --output "$ffmpeg_zip" "$ffmpeg_url"
+          actual_sha256="$(sha256sum "$ffmpeg_zip" | awk '{print $1}')"
+          actual_sha256="${actual_sha256#\\}"
+          if [[ "$actual_sha256" != "$ffmpeg_sha256" ]]; then
+            echo "FFmpeg checksum mismatch. Expected $ffmpeg_sha256, got $actual_sha256."
+            exit 1
+          fi
+
+          powershell -NoProfile -Command "Expand-Archive -LiteralPath '$ffmpeg_zip' -DestinationPath '$ffmpeg_extract_dir' -Force"
+          ffmpeg_bin_dir="$(dirname "$(find "$ffmpeg_extract_dir" -type f -name ffmpeg.exe -print -quit)")"
+          cp "$ffmpeg_bin_dir/ffmpeg.exe" bin/
+          cp "$ffmpeg_bin_dir/ffprobe.exe" bin/
+          test -f bin/ffmpeg.exe
+          test -f bin/ffprobe.exe
+
+      - name: Download verified FFmpeg for macOS ARM64 bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p bin
+          ffmpeg_url="https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-darwin-arm64"
+          ffprobe_url="https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffprobe-darwin-arm64"
+          ffmpeg_sha256="a90e3db6a3fd35f6074b013f948b1aa45b31c6375489d39e572bea3f18336584"
+          ffprobe_sha256="bb2db6f5d8cef919da12fbf592119a987202a8c060a886f3cab091f9cab90b64"
+
+          curl -L --fail --retry 3 --output bin/ffmpeg "$ffmpeg_url"
+          curl -L --fail --retry 3 --output bin/ffprobe "$ffprobe_url"
+
+          actual_ffmpeg_sha256="$(shasum -a 256 bin/ffmpeg | awk '{print $1}')"
+          actual_ffprobe_sha256="$(shasum -a 256 bin/ffprobe | awk '{print $1}')"
+          if [[ "$actual_ffmpeg_sha256" != "$ffmpeg_sha256" ]]; then
+            echo "macOS ffmpeg checksum mismatch. Expected $ffmpeg_sha256, got $actual_ffmpeg_sha256."
+            exit 1
+          fi
+          if [[ "$actual_ffprobe_sha256" != "$ffprobe_sha256" ]]; then
+            echo "macOS ffprobe checksum mismatch. Expected $ffprobe_sha256, got $actual_ffprobe_sha256."
+            exit 1
+          fi
+
+          chmod +x bin/ffmpeg bin/ffprobe
+          bin/ffmpeg -version
+          bin/ffprobe -version
+
+      - name: Run test suite
+        shell: bash
+        run: |
+          "$VENV_PYTHON" -m pytest tests
+
+      - name: Build standalone application
+        shell: bash
+        run: |
+          "$VENV_PYTHON" scripts/build_app.py
+
+      - name: Prepare release asset
+        shell: bash
+        run: |
+          mkdir -p release_assets
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            cp dist/MediaStudio-macOS.zip "release_assets/${{ matrix.asset_name }}"
+          else
+            cp dist/MediaStudio-Windows.zip "release_assets/${{ matrix.asset_name }}"
+          fi
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.asset_path }}
+          name: ${{ matrix.name }}
+          path: release_assets/${{ matrix.asset_name }}
 
   release:
+    name: Publish GitHub Release
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
-      - name: Download all artifacts
+      - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
           path: release_assets
+          merge-multiple: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release_assets/**/*
+          files: release_assets/*
           draft: false
           prerelease: false
           generate_release_notes: true

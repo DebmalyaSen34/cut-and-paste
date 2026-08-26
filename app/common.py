@@ -19,7 +19,7 @@ def get_subprocess_kwargs() -> dict:
     """Return platform-specific kwargs to suppress console window flashing on Windows."""
     kwargs = {}
     if sys.platform == "win32":
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
     return kwargs
 
 
