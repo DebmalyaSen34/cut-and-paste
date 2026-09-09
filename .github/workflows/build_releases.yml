@@ -45,7 +45,15 @@ jobs:
       - name: Resolve Python Path
         shell: bash
         run: |
-          python_bin="$(command -v python)"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            python_bin="${pythonLocation}/python.exe"
+          else
+            python_bin="$(command -v python3)"
+          fi
+          if [[ ! -f "$python_bin" ]]; then
+            echo "Python interpreter was not found at: $python_bin"
+            exit 1
+          fi
           echo "PYTHON_BIN=$python_bin" >> "$GITHUB_ENV"
           "$python_bin" --version
 
