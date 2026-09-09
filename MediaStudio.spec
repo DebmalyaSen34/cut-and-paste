@@ -6,9 +6,10 @@ block_cipher = None
 
 project_dir = Path.cwd()
 bin_dir = project_dir / "bin"
+assets_dir = project_dir / "assets"
 
 # Collect static binaries if present in ./bin
-datas = []
+datas = [(str(assets_dir / "cutandpaste-logo-1.png"), "assets")]
 if bin_dir.is_dir():
     for bin_file in bin_dir.glob("*"):
         if bin_file.is_file():
@@ -48,7 +49,7 @@ if sys.platform == "darwin":
         a.scripts,
         [],
         exclude_binaries=True,
-        name='MediaStudio',
+        name='CutAndPasteStudio',
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,
@@ -68,13 +69,13 @@ if sys.platform == "darwin":
         strip=False,
         upx=True,
         upx_exclude=[],
-        name='MediaStudio',
+        name='CutAndPasteStudio',
     )
     app = BUNDLE(
         coll,
-        name='MediaStudio.app',
-        icon=None,
-        bundle_identifier='com.mediastudio.app',
+        name='CutAndPasteStudio.app',
+        icon=str(assets_dir / 'CutAndPasteStudio.icns'),
+        bundle_identifier='com.cutandpastestudio.app',
         info_plist={
             'NSHighResolutionCapable': 'True',
             'CFBundleShortVersionString': '1.0.0',
@@ -89,7 +90,7 @@ else:
         a.zipfiles,
         a.datas,
         [],
-        name='MediaStudio',
+        name='CutAndPasteStudio',
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,
@@ -101,5 +102,5 @@ else:
         target_arch=None,
         codesign_identity=None,
         entitlements_file=None,
-        icon=None,
+        icon=str(assets_dir / 'CutAndPasteStudio.ico'),
     )

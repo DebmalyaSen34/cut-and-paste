@@ -22,7 +22,7 @@ from audio_app.audio_tab import AudioCutterWidget
 class MainWindow(QMainWindow):
     def __init__(self, initial_tab: int = 0) -> None:
         super().__init__()
-        self.setWindowTitle("Media Studio")
+        self.setWindowTitle("Cut and Paste Studio")
         self.resize(1340, 850)
         # The editor needs enough vertical room for a directly manipulable
         # timeline and segment list without controls overlapping.

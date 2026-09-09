@@ -99,7 +99,7 @@ def notarize_macos_app(app_path: Path, archive_path: Path) -> bool:
 
 def main() -> int:
     print("==================================================")
-    print("  Media Studio Standalone Packaging Builder")
+    print("  Cut and Paste Studio Standalone Packaging Builder")
     print("==================================================")
 
     # Step 1: Ensure static FFmpeg binaries exist
@@ -120,7 +120,7 @@ def main() -> int:
         sys.executable,
         "-m",
         "PyInstaller",
-        "MediaStudio.spec",
+        "MediaStudio.spec", # Change to "CutAndPasteStudio.spec" if you renamed the spec file
         "--clean",
         "-y",
     ]
@@ -129,25 +129,25 @@ def main() -> int:
     # Step 3: Package final archive
     print("\n[*] Packaging distribution archive...")
     if sys.platform == "darwin":
-        app_path = DIST_DIR / "MediaStudio.app"
+        app_path = DIST_DIR / "CutAndPasteStudio.app"
         if app_path.exists():
-            archive_path = DIST_DIR / "MediaStudio-macOS.zip"
+            archive_path = DIST_DIR / "CutAndPasteStudio-macOS.zip"
             has_developer_signature = sign_macos_app(app_path)
             create_macos_archive(app_path, archive_path)
             notarized = has_developer_signature and notarize_macos_app(app_path, archive_path)
             if has_developer_signature and not notarized:
                 print("\n[!] Developer ID signature applied, but notarization credentials were not provided.")
             print(f"\n[SUCCESS] macOS standalone app created:")
-            print(f"     -> {DIST_DIR / 'MediaStudio.app'}")
+            print(f"     -> {DIST_DIR / 'CutAndPasteStudio.app'}")
             print(f"     -> {archive_path}")
     elif sys.platform == "win32":
-        exe_path = DIST_DIR / "MediaStudio.exe"
+        exe_path = DIST_DIR / "CutAndPasteStudio.exe"
         if exe_path.exists():
-            zip_out = DIST_DIR / "MediaStudio-Windows"
-            shutil.make_archive(str(zip_out), "zip", root_dir=str(DIST_DIR), base_dir="MediaStudio.exe")
+            zip_out = DIST_DIR / "CutAndPasteStudio-Windows"
+            shutil.make_archive(str(zip_out), "zip", root_dir=str(DIST_DIR), base_dir="CutAndPasteStudio.exe")
             print(f"\n[SUCCESS] Windows standalone executable created:")
-            print(f"     -> {DIST_DIR / 'MediaStudio.exe'}")
-            print(f"     -> {DIST_DIR / 'MediaStudio-Windows.zip'}")
+            print(f"     -> {DIST_DIR / 'CutAndPasteStudio.exe'}")
+            print(f"     -> {DIST_DIR / 'CutAndPasteStudio-Windows.zip'}")
     else:
         print(f"\n[SUCCESS] Build output located in {DIST_DIR}")
 

@@ -23,10 +23,10 @@ jobs:
         include:
           - name: macos-arm64
             platform: [self-hosted, macOS, ARM64]
-            asset_name: MediaStudio-macOS-arm64.zip
+            asset_name: CutAndPasteStudio-macOS-arm64.zip
           - name: windows-x64
             platform: windows-latest
-            asset_name: MediaStudio-Windows-x64.zip
+            asset_name: CutAndPasteStudio-Windows-x64.zip
 
     steps:
       - name: Checkout Code
@@ -199,10 +199,10 @@ jobs:
           verify_dir="$RUNNER_TEMP/mediastudio-verify"
           rm -rf "$verify_dir"
           mkdir -p "$verify_dir"
-          ditto -x -k dist/MediaStudio-macOS.zip "$verify_dir"
-          test -L "$verify_dir/MediaStudio.app/Contents/Frameworks/PySide6/Qt/lib/QtCore.framework/Versions/Current"
-          codesign --verify --deep --strict --verbose=2 "$verify_dir/MediaStudio.app"
-          "$verify_dir/MediaStudio.app/Contents/MacOS/MediaStudio" --help >/dev/null 2>&1 &
+          ditto -x -k dist/CutAndPasteStudio-macOS.zip "$verify_dir"
+          test -L "$verify_dir/CutAndPasteStudio.app/Contents/Frameworks/PySide6/Qt/lib/QtCore.framework/Versions/Current"
+          codesign --verify --deep --strict --verbose=2 "$verify_dir/CutAndPasteStudio.app"
+          "$verify_dir/CutAndPasteStudio.app/Contents/MacOS/CutAndPasteStudio" --help >/dev/null 2>&1 &
           smoke_pid=$!
           sleep 5
           if ! kill -0 "$smoke_pid" 2>/dev/null; then
@@ -231,9 +231,9 @@ jobs:
         run: |
           mkdir -p release_assets
           if [[ "${{ runner.os }}" == "macOS" ]]; then
-            cp dist/MediaStudio-macOS.zip "release_assets/${{ matrix.asset_name }}"
+            cp dist/CutAndPasteStudio-macOS.zip "release_assets/${{ matrix.asset_name }}"
           else
-            cp dist/MediaStudio-Windows.zip "release_assets/${{ matrix.asset_name }}"
+            cp dist/CutAndPasteStudio-Windows.zip "release_assets/${{ matrix.asset_name }}"
           fi
 
       - name: Upload artifact

@@ -1,4 +1,4 @@
-# Media Studio (Frame Extractor & Audio Cutter/Merger)
+# Cut And Paste Studio
 
 A unified, high-performance cross-platform desktop application built with **Python**, **PySide6 (Qt 6)**, and **FFmpeg** for:
 1. **Video Frame Extraction & Cropping**: Extract full-resolution video frames at arbitrary timestamps and apply non-destructive crop metadata before export.
@@ -12,8 +12,8 @@ Works seamlessly on both **macOS** and **Windows** (as well as Linux).
 
 No terminal, no Python, and no Homebrew or winget required:
 
-- **macOS**: Download `MediaStudio-macOS.zip` (or `.dmg`) from GitHub Releases -> Unzip -> Open `MediaStudio.app`.
-- **Windows**: Download `MediaStudio-Windows.zip` from GitHub Releases -> Unzip -> Double-click `MediaStudio.exe`.
+- **macOS (Apple silicon)**: Download `CutAndPasteStudio-macOS-arm64.zip` from GitHub Releases, unzip it, then open `CutAndPasteStudio.app`.
+- **Windows (64-bit)**: Download `CutAndPasteStudio-Windows-x64.zip` from GitHub Releases, unzip it, then double-click `CutAndPasteStudio.exe`.
 
 > All media tools (including static FFmpeg & FFprobe) are fully embedded inside the package!
 
@@ -30,7 +30,7 @@ If you are developing or running directly from source:
 uv sync
 uv run main.py
 ```
-*(If FFmpeg is not found on your system when running from source, Media Studio will display a 1-click dialog to download and set it up automatically).*
+If FFmpeg is not found when running from source, CutAndPasteStudio displays a setup dialog that can download and configure it automatically.
 
 ### Building Standalone Packages Locally
 
@@ -64,7 +64,7 @@ be published.
 - **High-Precision Frame Capturing**: Capture full-resolution frames at any arbitrary timestamp using FFmpeg directly.
 - **Non-Destructive Crop Editor**: Interactive visual crop box and manual coordinate inputs (X, Y, Width, Height) applied on export via FFmpeg's `crop` filter.
 - **Optimized for Large Files**: Smooth interactive preview for standard videos with automatic still-preview fallback for large video files.
-- **Export Options**: Export selected or all captured frames as PNG or JPEG without re-encoding original source video.
+- **PNG Export**: Export selected or all captured frames as full-quality PNG images without re-encoding the source video.
 
 ### Video Keyboard Shortcuts
 | Shortcut | Action |

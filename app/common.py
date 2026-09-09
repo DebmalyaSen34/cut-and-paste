@@ -15,6 +15,12 @@ class ToolNotFoundError(RuntimeError):
     pass
 
 
+def get_resource_path(relative_path: str) -> Path:
+    """Resolve a bundled PyInstaller resource or a source-tree asset."""
+    bundle_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+    return bundle_root / relative_path
+
+
 def get_subprocess_kwargs() -> dict:
     """Return platform-specific kwargs to suppress console window flashing on Windows."""
     kwargs = {}
