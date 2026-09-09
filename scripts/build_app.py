@@ -23,6 +23,80 @@ if hasattr(sys.stdout, "reconfigure"):
         pass
 
 
+def create_macos_archive(app_path: Path, archive_path: Path) -> None:
+    """Create a macOS-safe ZIP without flattening framework symlinks."""
+    if archive_path.exists():
+        archive_path.unlink()
+    subprocess.check_call(
+        [
+            "/usr/bin/ditto",
+            "-c",
+            "-k",
+            "--sequesterRsrc",
+            "--keepParent",
+            str(app_path),
+            str(archive_path),
+        ]
+    )
+
+
+def verify_macos_app(app_path: Path) -> None:
+    """Fail packaging when any nested framework or executable is malformed."""
+    subprocess.check_call(
+        ["/usr/bin/codesign", "--verify", "--deep", "--strict", "--verbose=2", str(app_path)]
+    )
+
+
+def sign_macos_app(app_path: Path) -> bool:
+    """Sign with Developer ID when configured, otherwise create a valid ad-hoc signature."""
+    identity = os.environ.get("MACOS_CODESIGN_IDENTITY", "").strip() or "-"
+    command = ["/usr/bin/codesign", "--force", "--deep", "--sign", identity]
+    if identity != "-":
+        command[3:3] = ["--options", "runtime", "--timestamp"]
+        print(f"\n[*] Signing macOS app with identity: {identity}")
+    else:
+        print("\n[!] No Developer ID configured; applying a valid ad-hoc signature.")
+        print("    The app will require right-click > Open on first launch.")
+    command.append(str(app_path))
+    subprocess.check_call(command)
+    verify_macos_app(app_path)
+    return identity != "-"
+
+
+def notarize_macos_app(app_path: Path, archive_path: Path) -> bool:
+    """Notarize and staple when all Apple credentials are available."""
+    apple_id = os.environ.get("APPLE_ID", "").strip()
+    password = os.environ.get("APPLE_APP_SPECIFIC_PASSWORD", "").strip()
+    team_id = os.environ.get("APPLE_TEAM_ID", "").strip()
+    if not all((apple_id, password, team_id)):
+        return False
+
+    print("\n[*] Submitting macOS app to Apple for notarization...")
+    subprocess.check_call(
+        [
+            "/usr/bin/xcrun",
+            "notarytool",
+            "submit",
+            str(archive_path),
+            "--apple-id",
+            apple_id,
+            "--password",
+            password,
+            "--team-id",
+            team_id,
+            "--wait",
+        ]
+    )
+    subprocess.check_call(["/usr/bin/xcrun", "stapler", "staple", str(app_path)])
+    subprocess.check_call(["/usr/bin/xcrun", "stapler", "validate", str(app_path)])
+    verify_macos_app(app_path)
+    subprocess.check_call(
+        ["/usr/sbin/spctl", "--assess", "--type", "execute", "--verbose=2", str(app_path)]
+    )
+    create_macos_archive(app_path, archive_path)
+    return True
+
+
 def main() -> int:
     print("==================================================")
     print("  Media Studio Standalone Packaging Builder")
@@ -57,11 +131,15 @@ def main() -> int:
     if sys.platform == "darwin":
         app_path = DIST_DIR / "MediaStudio.app"
         if app_path.exists():
-            zip_out = DIST_DIR / "MediaStudio-macOS"
-            shutil.make_archive(str(zip_out), "zip", root_dir=str(DIST_DIR), base_dir="MediaStudio.app")
+            archive_path = DIST_DIR / "MediaStudio-macOS.zip"
+            has_developer_signature = sign_macos_app(app_path)
+            create_macos_archive(app_path, archive_path)
+            notarized = has_developer_signature and notarize_macos_app(app_path, archive_path)
+            if has_developer_signature and not notarized:
+                print("\n[!] Developer ID signature applied, but notarization credentials were not provided.")
             print(f"\n[SUCCESS] macOS standalone app created:")
             print(f"     -> {DIST_DIR / 'MediaStudio.app'}")
-            print(f"     -> {DIST_DIR / 'MediaStudio-macOS.zip'}")
+            print(f"     -> {archive_path}")
     elif sys.platform == "win32":
         exe_path = DIST_DIR / "MediaStudio.exe"
         if exe_path.exists():

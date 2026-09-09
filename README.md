@@ -42,6 +42,21 @@ python scripts/build_app.py
 ```
 Output archives will be generated in `dist/`.
 
+On macOS, the builder uses Apple's `ditto` tool so framework symlinks and bundle
+metadata survive ZIP packaging. A local build without an Apple Developer ID is
+ad-hoc signed and must be opened once with **right-click > Open**. For a release
+that opens normally after download, configure these GitHub Actions secrets:
+
+- `MACOS_CERTIFICATE`: base64-encoded Developer ID Application `.p12`
+- `MACOS_CERTIFICATE_PASSWORD`: password for that `.p12`
+- `APPLE_ID`: Apple ID used for notarization
+- `APPLE_APP_SPECIFIC_PASSWORD`: app-specific password for that Apple ID
+- `APPLE_TEAM_ID`: Apple Developer team identifier
+
+When present, CI signs the app with the hardened runtime, submits it to Apple's
+notary service, staples the ticket, and validates the final archive before it can
+be published.
+
 ---
 
 ## 🎬 Video Frame Extractor Features

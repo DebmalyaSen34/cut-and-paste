@@ -32,8 +32,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Python on Windows
-        if: runner.os == 'Windows'
+      - name: Setup Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -46,11 +45,7 @@ jobs:
       - name: Resolve Python Path
         shell: bash
         run: |
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            python_bin="${pythonLocation}/python.exe"
-          else
-            python_bin="$(command -v python3)"
-          fi
+          python_bin="$(command -v python)"
           echo "PYTHON_BIN=$python_bin" >> "$GITHUB_ENV"
           "$python_bin" --version
 
@@ -129,10 +124,93 @@ jobs:
         run: |
           "$VENV_PYTHON" -m pytest tests
 
-      - name: Build standalone application
+      - name: Import Apple Developer ID certificate
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          if [[ -z "$MACOS_CERTIFICATE" ]]; then
+            echo "No Apple signing certificate configured; build will be ad-hoc signed."
+            exit 0
+          fi
+          certificate_path="$RUNNER_TEMP/mediastudio-certificate.p12"
+          keychain_path="$RUNNER_TEMP/mediastudio-signing.keychain-db"
+          original_keychains_path="$RUNNER_TEMP/mediastudio-original-keychains.txt"
+          keychain_password="$(uuidgen)"
+
+          security list-keychains -d user > "$original_keychains_path"
+          echo "$MACOS_CERTIFICATE" | base64 -D > "$certificate_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+          existing_keychains=()
+          while IFS= read -r keychain; do
+            existing_keychains+=("${keychain//\"/}")
+          done < "$original_keychains_path"
+          security list-keychains -d user -s "$keychain_path" "${existing_keychains[@]}"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain_path"
+
+          identity="$(security find-identity -v -p codesigning "$keychain_path" | awk '/Developer ID Application/ {print $2; exit}')"
+          if [[ -z "$identity" ]]; then
+            echo "No Developer ID Application identity found in certificate."
+            exit 1
+          fi
+          echo "MACOS_CODESIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "MACOS_KEYCHAIN_PATH=$keychain_path" >> "$GITHUB_ENV"
+          echo "MACOS_ORIGINAL_KEYCHAINS_PATH=$original_keychains_path" >> "$GITHUB_ENV"
+
+      - name: Build standalone application on Windows
+        if: runner.os == 'Windows'
         shell: bash
         run: |
           "$VENV_PYTHON" scripts/build_app.py
+
+      - name: Build, sign, and package macOS application
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          "$VENV_PYTHON" scripts/build_app.py
+
+      - name: Validate packaged macOS application
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          verify_dir="$RUNNER_TEMP/mediastudio-verify"
+          rm -rf "$verify_dir"
+          mkdir -p "$verify_dir"
+          ditto -x -k dist/MediaStudio-macOS.zip "$verify_dir"
+          test -L "$verify_dir/MediaStudio.app/Contents/Frameworks/PySide6/Qt/lib/QtCore.framework/Versions/Current"
+          codesign --verify --deep --strict --verbose=2 "$verify_dir/MediaStudio.app"
+          "$verify_dir/MediaStudio.app/Contents/MacOS/MediaStudio" --help >/dev/null 2>&1 &
+          smoke_pid=$!
+          sleep 5
+          if ! kill -0 "$smoke_pid" 2>/dev/null; then
+            wait "$smoke_pid"
+            exit 1
+          fi
+          kill "$smoke_pid"
+
+      - name: Remove temporary signing keychain
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          if [[ -n "$MACOS_KEYCHAIN_PATH" ]]; then
+            security delete-keychain "$MACOS_KEYCHAIN_PATH"
+          fi
+          if [[ -f "$MACOS_ORIGINAL_KEYCHAINS_PATH" ]]; then
+            original_keychains=()
+            while IFS= read -r keychain; do
+              original_keychains+=("${keychain//\"/}")
+            done < "$MACOS_ORIGINAL_KEYCHAINS_PATH"
+            security list-keychains -d user -s "${original_keychains[@]}"
+          fi
 
       - name: Prepare release asset
         shell: bash
