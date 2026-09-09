@@ -32,23 +32,30 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.12
-        uses: actions/setup-python@v5
+      - name: Setup Python 3.12 on Windows
+        id: setup-python
+        if: runner.os == 'Windows'
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Setup uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10
         with:
           enable-cache: true
+          version: "latest-known"
 
       - name: Resolve Python Path
         shell: bash
         run: |
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            python_bin="${pythonLocation}/python.exe"
+            python_bin="${{ steps.setup-python.outputs.python-path }}"
           else
-            python_bin="$(command -v python3)"
+            uv_python_dir="$RUNNER_TEMP/uv-python"
+            echo "UV_PYTHON_INSTALL_DIR=$uv_python_dir" >> "$GITHUB_ENV"
+            export UV_PYTHON_INSTALL_DIR="$uv_python_dir"
+            uv python install 3.12
+            python_bin="$(uv python find 3.12)"
           fi
           if [[ ! -f "$python_bin" ]]; then
             echo "Python interpreter was not found at: $python_bin"
