@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os
+from html import escape
 import shutil
 from pathlib import Path
 from typing import Callable
@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSlider,
+    QSizePolicy,
+    QStyle,
     QVBoxLayout,
     QWidget,
 )
@@ -75,6 +77,9 @@ class AudioCutterWidget(QWidget):
         self._audio_path: Path | None = None
         self._metadata: AudioMetadata | None = None
         self._peaks: list[tuple[float, float]] = []
+        self._load_generation = 0
+        self._active_workers: set[FunctionWorker] = set()
+        self._is_loading = False
 
         self._player = AudioPlayer(self)
         self._thread_pool = QThreadPool.globalInstance()
@@ -86,37 +91,52 @@ class AudioCutterWidget(QWidget):
 
     def _setup_ui(self) -> None:
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(12, 12, 12, 8)
-        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(16, 16, 16, 12)
+        main_layout.setSpacing(12)
 
         # 1. Top Header & File Info Bar
         top_bar = QHBoxLayout()
+        top_bar.setSpacing(10)
 
-        self.btn_open = QPushButton("Open Audio File...")
-        self.btn_open.setFixedHeight(32)
-        self.btn_open.setStyleSheet("font-weight: bold; padding: 0 14px;")
+        page_title = QLabel("Audio Editor")
+        page_title.setObjectName("pageTitle")
+        page_subtitle = QLabel("Shape a selection, arrange segments, and export one clean track.")
+        page_subtitle.setObjectName("secondaryLabel")
+        heading = QVBoxLayout()
+        heading.setSpacing(1)
+        heading.addWidget(page_title)
+        heading.addWidget(page_subtitle)
+
+        self.btn_open = QPushButton("Open Audio")
+        self.btn_open.setProperty("role", "primary")
         self.btn_open.clicked.connect(self.open_file_dialog)
 
         self.lbl_file_info = QLabel("No file loaded. Open or drag & drop an audio file.")
-        self.lbl_file_info.setStyleSheet("color: #9999aa; font-size: 12px; margin-left: 8px;")
+        self.lbl_file_info.setObjectName("secondaryLabel")
+        self.lbl_file_info.setMinimumWidth(0)
+        self.lbl_file_info.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.lbl_file_info.setToolTip("Open an audio file or drop one anywhere in this window")
 
         # Volume control
-        self.lbl_vol_icon = QLabel("🔊")
+        self.lbl_vol_icon = QLabel("Volume")
+        self.lbl_vol_icon.setObjectName("secondaryLabel")
         self.slider_volume = QSlider(Qt.Orientation.Horizontal)
         self.slider_volume.setRange(0, 100)
         self.slider_volume.setValue(85)
         self.slider_volume.setFixedWidth(100)
         self.slider_volume.valueChanged.connect(self._on_volume_slider_changed)
 
+        top_bar.addLayout(heading)
+        top_bar.addSpacing(8)
         top_bar.addWidget(self.btn_open)
-        top_bar.addWidget(self.lbl_file_info)
         top_bar.addStretch()
         top_bar.addWidget(self.lbl_vol_icon)
         top_bar.addWidget(self.slider_volume)
         main_layout.addLayout(top_bar)
+        main_layout.addWidget(self.lbl_file_info)
 
         # 2. Waveform & Timeline Area
-        wave_box = QGroupBox("Timeline & Waveform")
+        wave_box = QGroupBox("Timeline")
         wave_layout = QVBoxLayout(wave_box)
         wave_layout.setContentsMargins(8, 8, 8, 8)
         wave_layout.setSpacing(6)
@@ -124,16 +144,14 @@ class AudioCutterWidget(QWidget):
         # Waveform toolbar (Zoom & view controls)
         wave_tools = QHBoxLayout()
         wave_tools.setContentsMargins(0, 0, 0, 0)
-        self.btn_zoom_in = QPushButton("Zoom In (+)")
-        self.btn_zoom_in.setFixedWidth(90)
+        self.btn_zoom_in = QPushButton("Zoom In")
         self.btn_zoom_in.clicked.connect(lambda: self.waveform.zoom_in())
 
-        self.btn_zoom_out = QPushButton("Zoom Out (-)")
-        self.btn_zoom_out.setFixedWidth(90)
+        self.btn_zoom_out = QPushButton("Zoom Out")
         self.btn_zoom_out.clicked.connect(lambda: self.waveform.zoom_out())
 
-        self.btn_zoom_fit = QPushButton("Fit Entire File")
-        self.btn_zoom_fit.setFixedWidth(100)
+        self.btn_zoom_fit = QPushButton("Fit")
+        self.btn_zoom_fit.setToolTip("Fit the entire file in the timeline")
         self.btn_zoom_fit.clicked.connect(lambda: self.waveform.reset_view())
 
         wave_tools.addStretch()
@@ -150,16 +168,16 @@ class AudioCutterWidget(QWidget):
         range_bar = QHBoxLayout()
         range_bar.setContentsMargins(0, 4, 0, 0)
 
-        self.btn_set_in = QPushButton("[ Set IN (I)")
-        self.btn_set_in.setToolTip("Set selection Start point at current playhead position (I)")
+        self.btn_set_in = QPushButton("Set In")
+        self.btn_set_in.setToolTip("Set the selection start at the playhead (I)")
         self.btn_set_in.clicked.connect(self.set_in_to_current)
 
         self.txt_in = QLineEdit("00:00:00.000")
         self.txt_in.setFixedWidth(110)
         self.txt_in.editingFinished.connect(self._on_txt_in_changed)
 
-        self.btn_set_out = QPushButton("Set OUT (O) ]")
-        self.btn_set_out.setToolTip("Set selection End point at current playhead position (O)")
+        self.btn_set_out = QPushButton("Set Out")
+        self.btn_set_out.setToolTip("Set the selection end at the playhead (O)")
         self.btn_set_out.clicked.connect(self.set_out_to_current)
 
         self.txt_out = QLineEdit("00:00:00.000")
@@ -167,10 +185,11 @@ class AudioCutterWidget(QWidget):
         self.txt_out.editingFinished.connect(self._on_txt_out_changed)
 
         self.lbl_selection_dur = QLabel("Selection: 00:00:00.000")
-        self.lbl_selection_dur.setStyleSheet("font-weight: bold; color: #00b4d8; margin-left: 6px;")
+        self.lbl_selection_dur.setObjectName("accentLabel")
 
-        self.btn_preview_selection = QPushButton("▶ Audition Selection")
-        self.btn_preview_selection.setToolTip("Play only the selected range (Space / Enter)")
+        self.btn_preview_selection = QPushButton("Audition Selection")
+        self.btn_preview_selection.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
+        self.btn_preview_selection.setToolTip("Play only the selected range")
         self.btn_preview_selection.clicked.connect(self.preview_current_selection)
 
         range_bar.addWidget(self.btn_set_in)
@@ -187,38 +206,33 @@ class AudioCutterWidget(QWidget):
 
         # 3. Main Transport / Playback Controls
         transport_layout = QHBoxLayout()
-        transport_layout.setContentsMargins(4, 2, 4, 2)
+        transport_layout.setContentsMargins(4, 0, 4, 0)
+        transport_layout.setSpacing(7)
 
-        self.btn_seek_back_5 = QPushButton("⏪ -5s")
-        self.btn_seek_back_5.setFixedWidth(60)
+        self.btn_seek_back_5 = QPushButton("-5s")
         self.btn_seek_back_5.clicked.connect(lambda: self._player.seek_relative(-5.0))
 
-        self.btn_seek_back_1 = QPushButton("◀ -1s")
-        self.btn_seek_back_1.setFixedWidth(55)
+        self.btn_seek_back_1 = QPushButton("-1s")
         self.btn_seek_back_1.clicked.connect(lambda: self._player.seek_relative(-1.0))
 
-        self.btn_play_pause = QPushButton("▶ Play")
-        self.btn_play_pause.setMinimumWidth(100)
-        self.btn_play_pause.setFixedHeight(34)
-        self.btn_play_pause.setStyleSheet(
-            "font-weight: bold; font-size: 13px; background-color: #2b9348; color: white;"
-        )
+        self.btn_play_pause = QPushButton("Play")
+        self.btn_play_pause.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
+        self.btn_play_pause.setMinimumWidth(90)
+        self.btn_play_pause.setProperty("role", "primary")
         self.btn_play_pause.clicked.connect(self.toggle_play_pause)
 
-        self.btn_stop = QPushButton("⏹ Stop")
-        self.btn_stop.setFixedWidth(65)
+        self.btn_stop = QPushButton("Stop")
+        self.btn_stop.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop))
         self.btn_stop.clicked.connect(self._player.stop)
 
-        self.btn_seek_fwd_1 = QPushButton("+1s ▶")
-        self.btn_seek_fwd_1.setFixedWidth(55)
+        self.btn_seek_fwd_1 = QPushButton("+1s")
         self.btn_seek_fwd_1.clicked.connect(lambda: self._player.seek_relative(1.0))
 
-        self.btn_seek_fwd_5 = QPushButton("+5s ⏩")
-        self.btn_seek_fwd_5.setFixedWidth(60)
+        self.btn_seek_fwd_5 = QPushButton("+5s")
         self.btn_seek_fwd_5.clicked.connect(lambda: self._player.seek_relative(5.0))
 
         self.lbl_time_display = QLabel("00:00:00.000 / 00:00:00.000")
-        self.lbl_time_display.setStyleSheet("font-family: monospace; font-size: 14px; font-weight: bold; margin-left: 14px;")
+        self.lbl_time_display.setObjectName("timeLabel")
 
         transport_layout.addWidget(self.btn_seek_back_5)
         transport_layout.addWidget(self.btn_seek_back_1)
@@ -226,8 +240,8 @@ class AudioCutterWidget(QWidget):
         transport_layout.addWidget(self.btn_stop)
         transport_layout.addWidget(self.btn_seek_fwd_1)
         transport_layout.addWidget(self.btn_seek_fwd_5)
-        transport_layout.addWidget(self.lbl_time_display)
         transport_layout.addStretch()
+        transport_layout.addWidget(self.lbl_time_display)
 
         main_layout.addLayout(transport_layout)
 
@@ -241,17 +255,14 @@ class AudioCutterWidget(QWidget):
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setFixedHeight(18)
-        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFixedHeight(6)
+        self.progress_bar.setTextVisible(False)
 
         self.lbl_status = QLabel("Ready")
-        self.lbl_status.setStyleSheet("color: #888899;")
+        self.lbl_status.setObjectName("secondaryLabel")
 
-        self.btn_export = QPushButton("⚡ Export & Merge Audio...")
-        self.btn_export.setFixedHeight(38)
-        self.btn_export.setStyleSheet(
-            "background-color: #0077b6; color: white; font-weight: bold; font-size: 13px; padding: 0 20px;"
-        )
+        self.btn_export = QPushButton("Export Audio…")
+        self.btn_export.setProperty("role", "primary")
         self.btn_export.clicked.connect(self.open_export_dialog)
 
         bottom_bar.addWidget(self.lbl_status)
@@ -276,7 +287,7 @@ class AudioCutterWidget(QWidget):
         self.segment_panel.btn_add_selection.clicked.connect(self.add_current_selection_to_segments)
         self.segment_panel.btn_split_playhead.clicked.connect(self.split_at_playhead)
         self.segment_panel.preview_requested.connect(self._player.play_range)
-        self.segment_panel.segments_updated.connect(self.waveform.set_segments)
+        self.segment_panel.segments_updated.connect(self._on_segments_updated)
         self.segment_panel.segment_selected.connect(self._on_segment_table_selected)
 
     # --- Loading Audio ---
@@ -295,15 +306,36 @@ class AudioCutterWidget(QWidget):
             self._show_error(f"File not found: {path}")
             return
 
-        self.lbl_status.setText(f"Loading '{path.name}'...")
+        self._load_generation += 1
+        generation = self._load_generation
+        self._is_loading = True
+        self.lbl_status.setText(f"Loading {path.name}…")
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)  # indeterminate
+        self._update_ui_state()
 
         # Background probe & waveform extraction
         worker = FunctionWorker(self._load_audio_worker, path)
-        worker.signals.finished.connect(self._on_audio_loaded)
-        worker.signals.failed.connect(self._on_audio_load_failed)
+        self._active_workers.add(worker)
+        worker.signals.finished.connect(
+            lambda result, w=worker, g=generation: self._finish_audio_load(w, g, result)
+        )
+        worker.signals.failed.connect(
+            lambda error, w=worker, g=generation: self._fail_audio_load(w, g, error)
+        )
         self._thread_pool.start(worker)
+
+    def _finish_audio_load(self, worker: FunctionWorker, generation: int, result: object) -> None:
+        self._active_workers.discard(worker)
+        if generation != self._load_generation:
+            return
+        self._on_audio_loaded(result)  # type: ignore[arg-type]
+
+    def _fail_audio_load(self, worker: FunctionWorker, generation: int, error: str) -> None:
+        self._active_workers.discard(worker)
+        if generation != self._load_generation:
+            return
+        self._on_audio_load_failed(error)
 
     def _load_audio_worker(self, path: Path) -> tuple[AudioMetadata, list[tuple[float, float]]]:
         metadata = probe_audio(path)
@@ -316,6 +348,7 @@ class AudioCutterWidget(QWidget):
         self._audio_path = metadata.path
         self._metadata = metadata
         self._peaks = peaks
+        self._is_loading = False
 
         self.progress_bar.setVisible(False)
         self.lbl_status.setText(f"Loaded '{metadata.filename}' successfully.")
@@ -323,7 +356,7 @@ class AudioCutterWidget(QWidget):
 
         # Update Header label
         info = (
-            f"<b>{metadata.filename}</b> | "
+            f"<b>{escape(metadata.filename)}</b> | "
             f"Duration: {metadata.duration_formatted} | "
             f"Codec: {metadata.codec.upper()} | "
             f"{metadata.sample_rate} Hz | "
@@ -343,8 +376,10 @@ class AudioCutterWidget(QWidget):
 
     @Slot(str)
     def _on_audio_load_failed(self, error_msg: str) -> None:
+        self._is_loading = False
         self.progress_bar.setVisible(False)
         self.lbl_status.setText("Failed to load audio.")
+        self._update_ui_state()
         self._show_error(f"Could not load audio file:\n{error_msg}")
 
     # --- UI Interactions & Public Control Methods ---
@@ -356,8 +391,9 @@ class AudioCutterWidget(QWidget):
         self._player.seek_relative(delta_seconds)
 
     def _update_ui_state(self) -> None:
-        has_audio = self._metadata is not None
-        self.btn_play_pause.setEnabled(has_audio)
+        has_audio = self._metadata is not None and not self._is_loading
+        self.btn_open.setEnabled(not self._is_loading)
+        self.btn_play_pause.setEnabled(has_audio and not self._is_loading)
         self.btn_stop.setEnabled(has_audio)
         self.btn_seek_back_1.setEnabled(has_audio)
         self.btn_seek_back_5.setEnabled(has_audio)
@@ -372,7 +408,15 @@ class AudioCutterWidget(QWidget):
         self.txt_out.setEnabled(has_audio)
         self.btn_preview_selection.setEnabled(has_audio)
         self.segment_panel.setEnabled(has_audio)
-        self.btn_export.setEnabled(has_audio)
+        has_exportable_segment = any(
+            segment.enabled and segment.duration > 0.01
+            for segment in self.segment_panel.get_segments()
+        )
+        self.btn_export.setEnabled(has_audio and has_exportable_segment)
+
+    def _on_segments_updated(self, segments: list[AudioSegment]) -> None:
+        self.waveform.set_segments(segments)
+        self._update_ui_state()
 
     @Slot(float)
     def _on_player_position_changed(self, pos_sec: float) -> None:
@@ -387,15 +431,11 @@ class AudioCutterWidget(QWidget):
     @Slot(bool)
     def _on_playback_state_changed(self, is_playing: bool) -> None:
         if is_playing:
-            self.btn_play_pause.setText("⏸ Pause")
-            self.btn_play_pause.setStyleSheet(
-                "font-weight: bold; font-size: 13px; background-color: #d90429; color: white;"
-            )
+            self.btn_play_pause.setText("Pause")
+            self.btn_play_pause.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPause))
         else:
-            self.btn_play_pause.setText("▶ Play")
-            self.btn_play_pause.setStyleSheet(
-                "font-weight: bold; font-size: 13px; background-color: #2b9348; color: white;"
-            )
+            self.btn_play_pause.setText("Play")
+            self.btn_play_pause.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
 
     @Slot(float, float)
     def _on_waveform_selection_changed(self, start: float, end: float) -> None:
@@ -417,14 +457,14 @@ class AudioCutterWidget(QWidget):
             t = parse_timestamp(self.txt_in.text())
             self.waveform.set_in_point(t)
         except ValueError:
-            pass
+            self.txt_in.setText(format_timestamp(self.waveform.selection_start))
 
     def _on_txt_out_changed(self) -> None:
         try:
             t = parse_timestamp(self.txt_out.text())
             self.waveform.set_out_point(t)
         except ValueError:
-            pass
+            self.txt_out.setText(format_timestamp(self.waveform.selection_end))
 
     def preview_current_selection(self) -> None:
         try:
@@ -433,7 +473,7 @@ class AudioCutterWidget(QWidget):
             if e > s:
                 self._player.play_range(s, e)
         except ValueError:
-            pass
+            self._show_error("Enter a valid In and Out timestamp to audition the selection.")
 
     def add_current_selection_to_segments(self) -> None:
         if not self._metadata:
@@ -484,7 +524,7 @@ class AudioCutterWidget(QWidget):
     def _on_volume_slider_changed(self, value: int) -> None:
         vol = value / 100.0
         self._player.set_volume(vol)
-        self.lbl_vol_icon.setText("🔇" if value == 0 else ("🔉" if value < 50 else "🔊"))
+        self.lbl_vol_icon.setText("Muted" if value == 0 else "Volume")
 
     # --- Export Processing ---
 
@@ -586,6 +626,7 @@ class AudioCutterWidget(QWidget):
         QMessageBox.critical(self, "Error", message)
 
     def cleanup(self) -> None:
+        self._load_generation += 1
         self._player.stop()
         self._thread_pool.waitForDone(2000)
         try:

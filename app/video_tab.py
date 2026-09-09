@@ -8,7 +8,6 @@ from typing import Callable
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal, Slot
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -108,6 +107,8 @@ class VideoExtractorWidget(QWidget):
         self.video_player.preview_frame_requested.connect(self.update_preview_frame)
 
         self.open_button = QPushButton("Open Video")
+        self.open_button.setProperty("role", "primary")
+        self.open_button.setToolTip("Choose a video file")
         self.open_button.clicked.connect(self.open_video)
         self.export_all_top_button = QPushButton("Export All")
         self.export_all_top_button.clicked.connect(self.export_all)
@@ -119,14 +120,12 @@ class VideoExtractorWidget(QWidget):
         self.crop_button = QPushButton("Crop")
         self.crop_button.clicked.connect(self.open_crop_editor)
         self.delete_button = QPushButton("Delete")
+        self.delete_button.setProperty("role", "destructive")
         self.delete_button.clicked.connect(self.delete_selected_frame)
         self.export_selected_button = QPushButton("Export Selected")
         self.export_selected_button.clicked.connect(self.export_selected)
         self.export_all_button = QPushButton("Export All")
         self.export_all_button.clicked.connect(self.export_all)
-        self.format_combo = QComboBox()
-        self.format_combo.addItems(["PNG", "JPEG"])
-
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
         self.progress.hide()
@@ -136,41 +135,62 @@ class VideoExtractorWidget(QWidget):
         self._check_tools_on_startup()
 
     def _build_ui(self) -> None:
+        page_title = QLabel("Frame Extractor")
+        page_title.setObjectName("pageTitle")
+        page_subtitle = QLabel("Find the exact moment, capture it at full resolution, and export.")
+        page_subtitle.setObjectName("secondaryLabel")
+        heading = QVBoxLayout()
+        heading.setSpacing(1)
+        heading.addWidget(page_title)
+
         top_bar = QHBoxLayout()
+        top_bar.setSpacing(8)
+        top_bar.addLayout(heading)
+        top_bar.addSpacing(12)
         top_bar.addWidget(self.open_button)
         top_bar.addStretch()
-        top_bar.addWidget(QLabel("Export Format:"))
-        top_bar.addWidget(self.format_combo)
         top_bar.addWidget(self.export_all_top_button)
 
         left = QWidget()
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(14)
         left_layout.addLayout(top_bar)
+        left_layout.addWidget(page_subtitle)
         left_layout.addWidget(self.video_player, stretch=1)
 
         sidebar = QWidget()
-        sidebar.setMinimumWidth(310)
-        sidebar.setMaximumWidth(390)
+        sidebar.setObjectName("sidebar")
+        sidebar.setMinimumWidth(288)
+        sidebar.setMaximumWidth(360)
         side_layout = QVBoxLayout(sidebar)
-        side_layout.setContentsMargins(0, 0, 0, 0)
+        side_layout.setContentsMargins(12, 12, 12, 12)
+        side_layout.setSpacing(8)
         title = QLabel("Captured Frames")
-        title.setObjectName("sidebarTitle")
+        title.setObjectName("sectionTitle")
+        hint = QLabel("Double-click a frame to crop it.")
+        hint.setObjectName("secondaryLabel")
         side_layout.addWidget(title)
+        side_layout.addWidget(hint)
         side_layout.addWidget(self.frame_list, stretch=1)
         side_layout.addWidget(self.progress)
-        side_layout.addWidget(self.crop_button)
+        edit_actions = QHBoxLayout()
+        edit_actions.setSpacing(8)
+        edit_actions.addWidget(self.crop_button)
+        edit_actions.addWidget(self.delete_button)
+        side_layout.addLayout(edit_actions)
         side_layout.addWidget(self.export_selected_button)
-        side_layout.addWidget(self.delete_button)
         side_layout.addWidget(self.export_all_button)
 
         splitter = QSplitter()
+        splitter.setHandleWidth(12)
+        splitter.setChildrenCollapsible(False)
         splitter.addWidget(left)
         splitter.addWidget(sidebar)
         splitter.setSizes([960, 320])
 
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setContentsMargins(16, 16, 16, 14)
         main_layout.addWidget(splitter)
 
     def _check_tools_on_startup(self) -> None:
@@ -357,7 +377,7 @@ class VideoExtractorWidget(QWidget):
         if not directory_text:
             return
 
-        extension = "jpg" if self.format_combo.currentText() == "JPEG" else "png"
+        extension = "png"
         output_dir = Path(directory_text)
         planned: list[tuple[CapturedFrame, Path]] = [
             (frame, output_dir / export_filename(frame.timestamp, extension, frame.is_cropped)) for frame in frames

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
@@ -29,18 +27,18 @@ class WaveformWidget(QWidget):
 
     # Distinct colors for segment overlays
     SEGMENT_COLORS = [
-        QColor(52, 152, 219, 100),   # Blue
-        QColor(46, 204, 113, 100),   # Green
-        QColor(155, 89, 182, 100),   # Purple
-        QColor(230, 126, 34, 100),   # Orange
-        QColor(241, 196, 15, 100),   # Yellow
-        QColor(231, 76, 60, 100),    # Red
-        QColor(26, 188, 156, 100),   # Turquoise
+        QColor(10, 132, 255, 74),
+        QColor(48, 209, 88, 74),
+        QColor(191, 90, 242, 74),
+        QColor(255, 159, 10, 74),
+        QColor(255, 214, 10, 74),
+        QColor(255, 69, 58, 74),
+        QColor(100, 210, 255, 74),
     ]
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setMinimumHeight(160)
+        self.setMinimumHeight(180)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMouseTracking(True)
 
@@ -63,6 +61,14 @@ class WaveformWidget(QWidget):
         self._last_mouse_pos = QPointF()
 
     # --- Public Setters ---
+
+    @property
+    def selection_start(self) -> float:
+        return self._selection_start
+
+    @property
+    def selection_end(self) -> float:
+        return self._selection_end
 
     def set_audio(self, duration: float, peaks: list[tuple[float, float]]) -> None:
         self._duration = max(0.0, duration)
@@ -94,12 +100,16 @@ class WaveformWidget(QWidget):
 
     def set_in_point(self, start: float) -> None:
         s = max(0.0, min(start, self._duration))
-        e = max(s, self._selection_end)
+        e = self._selection_end
+        if self._duration > 0 and s >= e:
+            s = self._selection_start
         self.set_selection(s, e)
 
     def set_out_point(self, end: float) -> None:
         e = max(0.0, min(end, self._duration))
-        s = min(self._selection_start, e)
+        s = self._selection_start
+        if self._duration > 0 and e <= s:
+            e = self._selection_end
         self.set_selection(s, e)
 
     def set_segments(self, segments: list[AudioSegment]) -> None:
@@ -113,7 +123,6 @@ class WaveformWidget(QWidget):
         self.set_zoom(self._zoom / 1.3)
 
     def set_zoom(self, zoom: float) -> None:
-        old_zoom = self._zoom
         self._zoom = max(1.0, min(zoom, 30.0))
         if self._zoom == 1.0:
             self._scroll_offset = 0.0
@@ -163,14 +172,14 @@ class WaveformWidget(QWidget):
         mid_y = wave_top + wave_h / 2.0
 
         # Background
-        painter.fillRect(0, 0, width, height, QColor("#1e1e24"))
-        painter.fillRect(0, 0, width, ruler_h, QColor("#16161a"))
+        painter.fillRect(0, 0, width, height, QColor("#18181a"))
+        painter.fillRect(0, 0, width, ruler_h, QColor("#202022"))
 
         # Time Ruler
         self._draw_ruler(painter, width, ruler_h)
 
         if self._duration <= 0 or not self._peaks:
-            painter.setPen(QColor("#777788"))
+            painter.setPen(QColor("#8e8e93"))
             painter.drawText(
                 QRectF(0, ruler_h, width, wave_h),
                 Qt.AlignmentFlag.AlignCenter,
@@ -194,7 +203,7 @@ class WaveformWidget(QWidget):
         self._draw_playhead(painter, wave_top, wave_h)
 
     def _draw_ruler(self, painter: QPainter, width: int, ruler_h: int) -> None:
-        painter.setPen(QPen(QColor("#333340"), 1))
+        painter.setPen(QPen(QColor("#3a3a3c"), 1))
         painter.drawLine(0, ruler_h - 1, width, ruler_h - 1)
 
         if self._duration <= 0:
@@ -212,9 +221,9 @@ class WaveformWidget(QWidget):
         start_time = (int(self._scroll_offset / step)) * step
         end_time = self._scroll_offset + vis_dur
 
-        font = QFont("Helvetica", 9)
+        font = QFont("SF Pro Text", 9)
         painter.setFont(font)
-        painter.setPen(QColor("#888899"))
+        painter.setPen(QColor("#98989d"))
 
         t = start_time
         while t <= end_time:
@@ -222,7 +231,8 @@ class WaveformWidget(QWidget):
             if 0 <= x <= width:
                 painter.drawLine(int(x), ruler_h - 6, int(x), ruler_h - 1)
                 label = format_timestamp_short(t)
-                painter.drawText(QRectF(x - 30, 2, 60, ruler_h - 8), Qt.AlignmentFlag.AlignCenter, label)
+                label_x = max(0.0, min(x - 30, width - 60.0))
+                painter.drawText(QRectF(label_x, 2, 60, ruler_h - 8), Qt.AlignmentFlag.AlignCenter, label)
             t += step
 
     def _draw_saved_segments(self, painter: QPainter, top: int, height: int) -> None:
@@ -245,8 +255,8 @@ class WaveformWidget(QWidget):
 
             # Segment label badge
             badge_text = seg.name or f"Seg {idx + 1}"
-            painter.setPen(QColor("#ffffff"))
-            painter.setFont(QFont("Helvetica", 9, QFont.Weight.Bold))
+            painter.setPen(QColor("#f5f5f7"))
+            painter.setFont(QFont("SF Pro Text", 9, QFont.Weight.DemiBold))
             painter.drawText(QRectF(x1 + 4, top + 4, w - 8, 16), Qt.AlignmentFlag.AlignLeft, badge_text)
 
     def _draw_selection(self, painter: QPainter, top: int, height: int) -> None:
@@ -258,11 +268,11 @@ class WaveformWidget(QWidget):
         w = max(1.0, x2 - x1)
 
         # Highlight box for active cut region
-        selection_brush = QBrush(QColor(0, 180, 216, 60))
+        selection_brush = QBrush(QColor(10, 132, 255, 54))
         painter.fillRect(QRectF(x1, top, w, height), selection_brush)
 
         # Dim regions outside selection
-        dim_brush = QBrush(QColor(0, 0, 0, 70))
+        dim_brush = QBrush(QColor(0, 0, 0, 82))
         if x1 > 0:
             painter.fillRect(QRectF(0, top, x1, height), dim_brush)
         if x2 < self.width():
@@ -276,14 +286,12 @@ class WaveformWidget(QWidget):
         num_peaks = len(self._peaks)
         half_h = (height / 2.0) * 0.90
 
-        painter.setPen(QPen(QColor("#3a86ff"), 1.0))
-
         # Waveform center baseline
-        painter.setPen(QPen(QColor("#2a2a38"), 1))
+        painter.setPen(QPen(QColor("#38383a"), 1))
         painter.drawLine(0, int(mid_y), width, int(mid_y))
 
         # Render vertical bars across width
-        painter.setPen(QPen(QColor("#00b4d8"), 1.2))
+        painter.setPen(QPen(QColor("#64d2ff"), 1.2))
         for x in range(width):
             t = self._x_to_time(x)
             peak_idx = int((t / self._duration) * num_peaks)
@@ -304,11 +312,11 @@ class WaveformWidget(QWidget):
 
         # IN Handle (Start)
         if 0 <= x_in <= self.width():
-            painter.setPen(QPen(QColor("#00f5d4"), 2))
+            painter.setPen(QPen(QColor("#30d158"), 2))
             painter.drawLine(int(x_in), top, int(x_in), top + height)
 
             # In Handle flag/tab at top
-            painter.setBrush(QBrush(QColor("#00f5d4")))
+            painter.setBrush(QBrush(QColor("#30d158")))
             in_flag = QPainterPath()
             in_flag.moveTo(x_in, top)
             in_flag.lineTo(x_in + self.HANDLE_WIDTH, top)
@@ -317,16 +325,16 @@ class WaveformWidget(QWidget):
             in_flag.closeSubpath()
             painter.drawPath(in_flag)
             painter.setPen(QColor("#000000"))
-            painter.setFont(QFont("Helvetica", 8, QFont.Weight.Bold))
+            painter.setFont(QFont("SF Pro Text", 8, QFont.Weight.Bold))
             painter.drawText(QRectF(x_in + 1, top + 2, self.HANDLE_WIDTH - 2, 12), Qt.AlignmentFlag.AlignCenter, "I")
 
         # OUT Handle (End)
         if 0 <= x_out <= self.width():
-            painter.setPen(QPen(QColor("#ff006e"), 2))
+            painter.setPen(QPen(QColor("#ff453a"), 2))
             painter.drawLine(int(x_out), top, int(x_out), top + height)
 
             # Out Handle flag/tab at top
-            painter.setBrush(QBrush(QColor("#ff006e")))
+            painter.setBrush(QBrush(QColor("#ff453a")))
             out_flag = QPainterPath()
             out_flag.moveTo(x_out, top)
             out_flag.lineTo(x_out - self.HANDLE_WIDTH, top)
@@ -335,7 +343,7 @@ class WaveformWidget(QWidget):
             out_flag.closeSubpath()
             painter.drawPath(out_flag)
             painter.setPen(QColor("#ffffff"))
-            painter.setFont(QFont("Helvetica", 8, QFont.Weight.Bold))
+            painter.setFont(QFont("SF Pro Text", 8, QFont.Weight.Bold))
             painter.drawText(QRectF(x_out - self.HANDLE_WIDTH + 1, top + 2, self.HANDLE_WIDTH - 2, 12), Qt.AlignmentFlag.AlignCenter, "O")
 
     def _draw_playhead(self, painter: QPainter, top: int, height: int) -> None:
@@ -347,11 +355,11 @@ class WaveformWidget(QWidget):
             return
 
         # Cursor line
-        painter.setPen(QPen(QColor("#ffbe0b"), 2))
+        painter.setPen(QPen(QColor("#ffd60a"), 2))
         painter.drawLine(int(x), top - 6, int(x), top + height)
 
         # Playhead top triangle indicator
-        painter.setBrush(QBrush(QColor("#ffbe0b")))
+        painter.setBrush(QBrush(QColor("#ffd60a")))
         painter.setPen(Qt.PenStyle.NoPen)
         playhead_poly = QPainterPath()
         playhead_poly.moveTo(x - 5, top - 6)
@@ -377,6 +385,7 @@ class WaveformWidget(QWidget):
         if event.button() == Qt.MouseButton.RightButton or (event.button() == Qt.MouseButton.LeftButton and (event.modifiers() & Qt.KeyboardModifier.AltModifier)):
             # Panning
             self._drag_mode = "pan"
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
             return
 
         if event.button() == Qt.MouseButton.LeftButton:
@@ -451,23 +460,25 @@ class WaveformWidget(QWidget):
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         self._drag_mode = None
+        self.unsetCursor()
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         if self._duration <= 0:
             return
 
         angle_delta = event.angleDelta()
-        num_degrees = angle_delta.y() / 8.0
+        pixel_delta = event.pixelDelta()
+        vertical_delta = pixel_delta.y() if not pixel_delta.isNull() else angle_delta.y()
 
         if event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier):
             # Zoom in/out at mouse location
-            if num_degrees > 0:
+            if vertical_delta > 0:
                 self.zoom_in()
             else:
                 self.zoom_out()
         else:
             # Horizontal scroll
-            h_delta = angle_delta.x() or angle_delta.y()
+            h_delta = pixel_delta.x() or pixel_delta.y() or angle_delta.x() or angle_delta.y()
             time_delta = (h_delta / 300.0) * self._visible_duration()
             vis_dur = self._visible_duration()
             self._scroll_offset = max(0.0, min(self._scroll_offset - time_delta, self._duration - vis_dur))

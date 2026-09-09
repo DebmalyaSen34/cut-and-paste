@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -20,6 +21,46 @@ from audio_app.models import AudioSegment
 from audio_app.utils import format_timestamp, parse_timestamp
 
 
+def _play_icon() -> QIcon:
+    """A crisp SF Symbols-inspired filled play glyph."""
+    pixmap = QPixmap(36, 36)
+    pixmap.setDevicePixelRatio(2.0)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#f5f5f7"))
+    path = QPainterPath()
+    path.moveTo(6.0, 3.8)
+    path.lineTo(15.0, 9.0)
+    path.lineTo(6.0, 14.2)
+    path.closeSubpath()
+    painter.drawPath(path)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _trash_icon() -> QIcon:
+    """A high-DPI outline trash glyph with rounded strokes."""
+    pixmap = QPixmap(36, 36)
+    pixmap.setDevicePixelRatio(2.0)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = QPen(QColor("#ffffff"), 1.45)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawRoundedRect(QRectF(5.1, 6.2, 7.8, 8.3), 1.3, 1.3)
+    painter.drawLine(QPointF(4.3, 5.2), QPointF(13.7, 5.2))
+    painter.drawLine(QPointF(7.1, 3.6), QPointF(10.9, 3.6))
+    painter.drawLine(QPointF(7.4, 8.1), QPointF(7.4, 12.5))
+    painter.drawLine(QPointF(10.6, 8.1), QPointF(10.6, 12.5))
+    painter.end()
+    return QIcon(pixmap)
+
+
 class SegmentPanel(QWidget):
     segments_updated = Signal(list)  # list[AudioSegment]
     segment_selected = Signal(object)  # AudioSegment
@@ -32,6 +73,7 @@ class SegmentPanel(QWidget):
         self._is_updating_table = False
 
         self._setup_ui()
+        self._update_actions()
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -41,9 +83,9 @@ class SegmentPanel(QWidget):
         # Header Bar
         header_layout = QHBoxLayout()
         title_label = QLabel("Audio Segments & Merge Order")
-        title_label.setStyleSheet("font-weight: bold; font-size: 13px;")
+        title_label.setObjectName("sectionTitle")
         self.summary_label = QLabel("0 segments | 00:00:00.000 total")
-        self.summary_label.setStyleSheet("color: #8888aa; font-size: 11px;")
+        self.summary_label.setObjectName("secondaryLabel")
 
         header_layout.addWidget(title_label)
         header_layout.addStretch()
@@ -75,6 +117,9 @@ class SegmentPanel(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(46)
+        self.table.setShowGrid(False)
+        self.table.setAlternatingRowColors(True)
         self.table.cellChanged.connect(self._on_cell_changed)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
 
@@ -83,24 +128,23 @@ class SegmentPanel(QWidget):
         # Action Buttons Toolbar
         btn_layout = QHBoxLayout()
 
-        self.btn_add_selection = QPushButton("+ Add Selection as Segment")
-        self.btn_add_selection.setStyleSheet(
-            "background-color: #2a75d3; color: white; font-weight: bold; padding: 5px 10px;"
-        )
+        self.btn_add_selection = QPushButton("Add Selection")
+        self.btn_add_selection.setProperty("role", "primary")
         self.btn_add_selection.setToolTip("Add current In/Out selection to the segments list (A or Enter)")
 
         self.btn_split_playhead = QPushButton("Split at Playhead")
         self.btn_split_playhead.setToolTip("Split selected segment at current playback cursor (S)")
 
-        self.btn_move_up = QPushButton("▲ Move Up")
+        self.btn_move_up = QPushButton("Move Up")
         self.btn_move_up.setToolTip("Move selected segment earlier in the merge order")
         self.btn_move_up.clicked.connect(self.move_selected_up)
 
-        self.btn_move_down = QPushButton("▼ Move Down")
+        self.btn_move_down = QPushButton("Move Down")
         self.btn_move_down.setToolTip("Move selected segment later in the merge order")
         self.btn_move_down.clicked.connect(self.move_selected_down)
 
         self.btn_delete = QPushButton("Delete")
+        self.btn_delete.setProperty("role", "destructive")
         self.btn_delete.setToolTip("Remove selected segment (Delete)")
         self.btn_delete.clicked.connect(self.delete_selected)
 
@@ -183,6 +227,7 @@ class SegmentPanel(QWidget):
     # --- Internal Table Management ---
 
     def _refresh_table(self) -> None:
+        selected_row = self.table.currentRow()
         self._is_updating_table = True
         self.table.setRowCount(len(self._segments))
 
@@ -199,6 +244,7 @@ class SegmentPanel(QWidget):
             cb.setChecked(seg.enabled)
             cb.stateChanged.connect(self._make_checkbox_handler(row))
             cb_container = QWidget()
+            cb_container.setObjectName("tableCell")
             cb_layout = QHBoxLayout(cb_container)
             cb_layout.addWidget(cb)
             cb_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -230,18 +276,27 @@ class SegmentPanel(QWidget):
 
             # Column 6: Action Buttons (Preview, Delete)
             actions_widget = QWidget()
+            actions_widget.setObjectName("tableCell")
             actions_layout = QHBoxLayout(actions_widget)
-            actions_layout.setContentsMargins(2, 2, 2, 2)
-            actions_layout.setSpacing(4)
+            actions_layout.setContentsMargins(7, 5, 7, 5)
+            actions_layout.setSpacing(8)
 
-            btn_play = QPushButton("▶ Play")
-            btn_play.setFixedHeight(22)
-            btn_play.setToolTip("Audition this segment")
+            btn_play = QPushButton()
+            btn_play.setIcon(_play_icon())
+            btn_play.setIconSize(QSize(18, 18))
+            btn_play.setProperty("role", "iconButton")
+            btn_play.setFixedSize(34, 34)
+            btn_play.setToolTip("Play segment")
+            btn_play.setAccessibleName("Play segment")
             btn_play.clicked.connect(self._make_play_handler(seg))
 
-            btn_del = QPushButton("✖")
-            btn_del.setFixedSize(22, 22)
-            btn_del.setToolTip("Delete this segment")
+            btn_del = QPushButton()
+            btn_del.setIcon(_trash_icon())
+            btn_del.setIconSize(QSize(18, 18))
+            btn_del.setProperty("role", "destructiveIcon")
+            btn_del.setFixedSize(34, 34)
+            btn_del.setToolTip("Remove segment")
+            btn_del.setAccessibleName("Remove segment")
             btn_del.clicked.connect(self._make_del_handler(row))
 
             actions_layout.addWidget(btn_play)
@@ -252,6 +307,9 @@ class SegmentPanel(QWidget):
             f"{active_count} of {len(self._segments)} segments active | {format_timestamp(total_active_duration)} merged duration"
         )
         self._is_updating_table = False
+        if 0 <= selected_row < len(self._segments):
+            self.table.selectRow(selected_row)
+        self._update_actions()
 
     def _make_checkbox_handler(self, row: int) -> Callable[[int], None]:
         def handler(state: int) -> None:
@@ -304,9 +362,19 @@ class SegmentPanel(QWidget):
 
     def _on_selection_changed(self) -> None:
         row = self.table.currentRow()
+        self._update_actions()
         if 0 <= row < len(self._segments):
             seg = self._segments[row]
             self.segment_selected.emit(seg)
 
     def _notify_update(self) -> None:
         self.segments_updated.emit(self._segments)
+
+    def _update_actions(self) -> None:
+        row = self.table.currentRow()
+        has_selection = 0 <= row < len(self._segments)
+        self.btn_split_playhead.setEnabled(bool(self._segments))
+        self.btn_move_up.setEnabled(has_selection and row > 0)
+        self.btn_move_down.setEnabled(has_selection and row < len(self._segments) - 1)
+        self.btn_delete.setEnabled(has_selection)
+        self.btn_clear.setEnabled(bool(self._segments))

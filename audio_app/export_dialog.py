@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import escape
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -34,6 +35,7 @@ class ExportDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Export Audio")
         self.resize(520, 420)
+        self.setMinimumWidth(480)
 
         self.source_path = source_path
         self.segments = [s for s in segments if s.enabled and s.duration > 0.01]
@@ -48,11 +50,11 @@ class ExportDialog(QDialog):
         # Overview Header
         total_dur = sum(s.duration for s in self.segments)
         summary_text = (
-            f"<b>Source:</b> {self.source_path.name}<br>"
+            f"<b>Source:</b> {escape(self.source_path.name)}<br>"
             f"<b>Active Segments:</b> {len(self.segments)} | <b>Total Duration:</b> {format_timestamp(total_dur)}"
         )
         self.lbl_summary = QLabel(summary_text)
-        self.lbl_summary.setStyleSheet("background: #23232b; padding: 10px; border-radius: 6px;")
+        self.lbl_summary.setObjectName("exportSummary")
         main_layout.addWidget(self.lbl_summary)
 
         # Export Mode Group
@@ -117,6 +119,7 @@ class ExportDialog(QDialog):
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Export Now")
+        button_box.button(QDialogButtonBox.StandardButton.Ok).setProperty("role", "primary")
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         main_layout.addWidget(button_box)

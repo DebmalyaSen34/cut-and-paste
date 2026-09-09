@@ -42,11 +42,11 @@ class VideoPlayer(QWidget):
         self.player.setAudioOutput(self.audio_output)
 
         self.video_widget = QVideoWidget(self)
-        self.video_widget.setMinimumHeight(420)
+        self.video_widget.setMinimumHeight(340)
         self.player.setVideoOutput(self.video_widget)
-        self.preview_label = QLabel("Open a video to preview frames")
+        self.preview_label = QLabel("Open a video to begin\n\nScrub precisely, capture a frame, then crop or export it.")
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_label.setMinimumHeight(420)
+        self.preview_label.setMinimumHeight(340)
         self.preview_label.setObjectName("previewLabel")
         self.preview_stack = QStackedLayout()
         preview_container = QWidget()
@@ -57,12 +57,17 @@ class VideoPlayer(QWidget):
 
         self.play_button = QPushButton()
         self.play_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
+        self.play_button.setToolTip("Play or pause (Space)")
+        self.play_button.setFixedWidth(42)
         self.back_5_button = QPushButton("-5s")
         self.forward_5_button = QPushButton("+5s")
-        self.prev_frame_button = QPushButton("Prev frame")
-        self.next_frame_button = QPushButton("Next frame")
+        self.prev_frame_button = QPushButton("Prev")
+        self.prev_frame_button.setToolTip("Previous frame (Left Arrow)")
+        self.next_frame_button = QPushButton("Next")
+        self.next_frame_button.setToolTip("Next frame (Right Arrow)")
         self.capture_button = QPushButton("Capture Frame")
-        self.capture_button.setObjectName("captureButton")
+        self.capture_button.setProperty("role", "primary")
+        self.capture_button.setToolTip("Capture the current full-resolution frame (C)")
         self.seek_button = QPushButton("Seek")
         self.timestamp_input = QLineEdit("00:00:00.000")
         self.timestamp_input.setFixedWidth(130)
@@ -70,8 +75,21 @@ class VideoPlayer(QWidget):
         self.duration_label = QLabel("00:00:00.000")
         self.timeline = QSlider(Qt.Orientation.Horizontal)
         self.timeline.setRange(0, 0)
+        self.timeline.setToolTip("Video timeline")
+
+        for button in (
+            self.play_button,
+            self.back_5_button,
+            self.forward_5_button,
+            self.prev_frame_button,
+            self.next_frame_button,
+            self.seek_button,
+            self.capture_button,
+        ):
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
 
         controls = QHBoxLayout()
+        controls.setSpacing(7)
         controls.addWidget(self.back_5_button)
         controls.addWidget(self.prev_frame_button)
         controls.addWidget(self.play_button)
@@ -91,6 +109,7 @@ class VideoPlayer(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
         layout.addWidget(preview_container, stretch=1)
         layout.addWidget(self.timeline)
         layout.addLayout(controls)
@@ -111,6 +130,7 @@ class VideoPlayer(QWidget):
         self.player.durationChanged.connect(self._on_duration_changed)
         self.player.playbackStateChanged.connect(self._on_playback_state_changed)
         self.player.errorOccurred.connect(self._on_player_error)
+        self._set_transport_enabled(False)
 
     def load_video(self, path: Path, fps: float, duration: float, enable_player: bool = True) -> None:
         self._fps = fps if fps > 0 else 30.0
@@ -121,9 +141,8 @@ class VideoPlayer(QWidget):
         self.player.setSource(QUrl())
         if enable_player:
             self.player.setSource(QUrl.fromLocalFile(str(path)))
-            self.play_button.setEnabled(True)
-        else:
-            self.play_button.setEnabled(False)
+        self._set_transport_enabled(True)
+        self.play_button.setEnabled(enable_player)
         self.timeline.setRange(0, max(0, self._duration_ms))
         self.duration_label.setText(format_timestamp(duration))
         self.seek_seconds(0)
@@ -182,7 +201,9 @@ class VideoPlayer(QWidget):
         self.seek_seconds(self.timeline.value() / 1000)
 
     def _on_slider_moved(self, value: int) -> None:
+        self._manual_position_ms = value
         self._set_position_labels(value)
+        self.preview_frame_requested.emit(value / 1000)
 
     def _on_position_changed(self, position_ms: int) -> None:
         self._manual_position_ms = position_ms
@@ -236,3 +257,17 @@ class VideoPlayer(QWidget):
         self.preview_label.setPixmap(scaled)
         if self.player.playbackState() != QMediaPlayer.PlaybackState.PlayingState:
             self.preview_stack.setCurrentWidget(self.preview_label)
+
+    def _set_transport_enabled(self, enabled: bool) -> None:
+        for widget in (
+            self.play_button,
+            self.back_5_button,
+            self.forward_5_button,
+            self.prev_frame_button,
+            self.next_frame_button,
+            self.timeline,
+            self.timestamp_input,
+            self.seek_button,
+            self.capture_button,
+        ):
+            widget.setEnabled(enabled)
